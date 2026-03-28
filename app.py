@@ -188,7 +188,21 @@ def normalize_ct_for_frangi(volume):
     return normalize01(volume.astype(np.float32))
 
 
-def run_frangi_3d(cropped_volume, sigmas=(1.0, 2.0, 3.0), gamma=15.0, threshold_percentile=90, min_object_size=100):
+def create_hu_vessel_mask(volume, hu_min, hu_max):
+    return (volume >= hu_min) & (volume <= hu_max)
+
+
+def run_frangi_3d(
+    cropped_volume,
+    sigmas=(1.0, 2.0, 3.0),
+    gamma=15.0,
+    threshold_percentile=90,
+    min_object_size=100,
+    hu_min=80,
+    hu_max=300,
+):
+    hu_mask = create_hu_vessel_mask(cropped_volume, hu_min=hu_min, hu_max=hu_max)
+
     vol = normalize_ct_for_frangi(cropped_volume)
 
     vesselness = frangi(
@@ -200,12 +214,15 @@ def run_frangi_3d(cropped_volume, sigmas=(1.0, 2.0, 3.0), gamma=15.0, threshold_
         black_ridges=False,
     )
 
-    positive = vesselness[vesselness > 0]
+    vesselness = np.where(hu_mask, vesselness, 0.0)
+
+    positive = vesselness[(vesselness > 0) & hu_mask]
     thr = np.percentile(positive, threshold_percentile) if positive.size > 0 else 0.0
-    binary = vesselness > thr
+    binary = (vesselness > thr) & hu_mask
 
     binary = remove_small_objects(binary, min_size=min_object_size)
     binary = binary_closing(binary, footprint=ball(1))
+    binary = binary & hu_mask
 
     labels = measure.label(binary, connectivity=3)
 
@@ -484,19 +501,24 @@ def main():
         # -------------------------------------------------
         st.header("5. Frangi vessel enhancement")
 
-        col_f1, col_f2 = st.columns(2)
+        col_f1, col_f2, col_f3 = st.columns(3)
         with col_f1:
             sigma_text = st.text_input("Sigmas (comma separated)", "1,2,3")
-            thr_pct = st.slider("Threshold percentile", 80, 99, 90, 1)
+            thr_pct = st.slider("Threshold percentile", 80, 99, 85, 1)
         with col_f2:
             gamma_val = st.slider("Gamma", 1.0, 30.0, 15.0, 1.0)
-            min_obj_size = st.slider("Min object size", 10, 2000, 100, 10)
+            min_obj_size = st.slider("Min object size", 10, 2000, 50, 10)
+        with col_f3:
+            hu_min = st.slider("HU min", min_value=-200, max_value=500, value=80, step=10)
+            hu_max = st.slider("HU max", min_value=-200, max_value=1000, value=300, step=10)
 
         if st.button("Run Frangi on cropped ROI", use_container_width=True):
             try:
                 sigmas = tuple(float(s.strip()) for s in sigma_text.split(",") if s.strip() != "")
                 if len(sigmas) == 0:
                     raise ValueError("sigmas を少なくとも1つ入力してください。")
+                if hu_min >= hu_max:
+                    raise ValueError("HU min は HU max より小さくしてください。")
 
                 vesselness, binary, labels, largest_component = run_frangi_3d(
                     cropped_volume=cropped_volume,
@@ -504,6 +526,8 @@ def main():
                     gamma=gamma_val,
                     threshold_percentile=thr_pct,
                     min_object_size=min_obj_size,
+                    hu_min=hu_min,
+                    hu_max=hu_max,
                 )
 
                 centerline_points = extract_centerline_candidate_points(
