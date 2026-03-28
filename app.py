@@ -384,9 +384,6 @@ def main():
     )
     z_min, z_max = z_range
 
-    z_idx_roi = safe_slice_nav("roi_slice", volume.shape[0] - 1, label="ROI preview slice")
-    img_roi = apply_window(volume[z_idx_roi], wl=wl, ww=ww)
-
     col_xy1, col_xy2 = st.columns(2)
     with col_xy1:
         x_range = st.slider(
@@ -402,6 +399,39 @@ def main():
             max_value=volume.shape[1] - 1,
             value=(max(0, volume.shape[1] // 4), min(volume.shape[1] - 1, volume.shape[1] * 3 // 4)),
         )
+
+    if "roi_preview_slice_value" not in st.session_state:
+        st.session_state["roi_preview_slice_value"] = volume.shape[0] // 2
+
+    st.write("ROI preview slice")
+
+    col_roi1, col_roi2 = st.columns([1, 4])
+    with col_roi1:
+        roi_preview_num = st.number_input(
+            "ROI preview slice number",
+            min_value=0,
+            max_value=volume.shape[0] - 1,
+            value=int(st.session_state["roi_preview_slice_value"]),
+            step=1,
+            key="roi_preview_slice_number_input",
+            label_visibility="collapsed",
+        )
+
+    with col_roi2:
+        roi_preview_slider = st.slider(
+            "ROI preview slice slider",
+            min_value=0,
+            max_value=volume.shape[0] - 1,
+            value=int(roi_preview_num),
+            step=1,
+            key="roi_preview_slice_slider",
+            label_visibility="collapsed",
+        )
+
+    z_idx_roi = int(roi_preview_slider)
+    st.session_state["roi_preview_slice_value"] = z_idx_roi
+
+    img_roi = apply_window(volume[z_idx_roi], wl=wl, ww=ww)
 
     x_min, x_max = x_range
     y_min, y_max = y_range
